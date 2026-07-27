@@ -13,7 +13,10 @@
     "scripts": ["sw.js"],
     "type": "module"
   },
-  "permissions": ["activeTab", "tabs", "scripting"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; connect-src 'self' ws://127.0.0.1:8797 http://127.0.0.1:8798;"
+  },
+  "permissions": ["activeTab", "tabs", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "browser_specific_settings": {
     "gecko": {

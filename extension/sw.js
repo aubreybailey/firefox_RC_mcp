@@ -150,5 +150,14 @@ async function netLog({ url, settle = 7000, pattern }) {
 
 const HANDLERS = { dumpDom, fetchUrl, searchLinks, netLog };
 
+// Firefox kills MV3 service workers after ~30s idle. browser.alarms fires an
+// event that wakes the SW; the handler reconnects the WS if it dropped.
+api.alarms.create("keepalive", { periodInMinutes: 0.4 });
+api.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "keepalive") {
+    if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+  }
+});
+
 connect();
 setInterval(() => { if (!ws || ws.readyState !== WebSocket.OPEN) connect(); }, 20000);
