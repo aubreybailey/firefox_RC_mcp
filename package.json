@@ -6,7 +6,8 @@
   "scripts": {
     "bridge": "node server/bridge.mjs",
     "mcp": "node server/mcp.mjs",
-    "sign": "npx -y web-ext sign --source-dir extension --channel unlisted --artifacts-dir dist"
+    "sign": "npx -y web-ext sign --source-dir extension --channel unlisted --artifacts-dir dist",
+    "test": "node test/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

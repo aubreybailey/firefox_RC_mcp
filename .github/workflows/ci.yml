@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntax
+        run: for f in server/*.mjs extension/*.js test/*.mjs; do node --check "$f"; done
+      - name: Lint extension
+        run: npx -y web-ext lint --source-dir extension --self-hosted
+      - name: Smoke test (bridge + MCP server, no browser)
+        run: npm test
