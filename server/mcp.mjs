@@ -24,18 +24,22 @@ import { z } from "zod";
 const BRIDGE = process.env.BROWSER_FETCH_BRIDGE || "http://127.0.0.1:8798";
 
 async function rpc(cmd) {
+  let r;
   try {
-    const r = await fetch(`${BRIDGE}/rpc`, {
+    r = await fetch(`${BRIDGE}/rpc`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(cmd),
     });
-    const body = await r.json();
-    if (r.status !== 200) throw new Error(body.error || `bridge returned ${r.status}`);
-    return body;
   } catch (e) {
     return { error: `bridge not reachable at ${BRIDGE} — start the bridge and load the extension (${String(e.message || e)})` };
   }
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 200) return body;
+  const msg = body.error || `bridge returned ${r.status}`;
+  // The bridge answers 502 "no extension connected" when Firefox isn't attached;
+  // anything else is an error from the extension itself (bad container, etc.).
+  return { error: /no extension connected/.test(msg) ? `bridge at ${BRIDGE} is up but ${msg}` : msg };
 }
 
 const asText = (obj) => ({

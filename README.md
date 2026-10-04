@@ -45,7 +45,8 @@ good:
    export WEB_EXT_API_KEY=user:...  WEB_EXT_API_SECRET=...
    npm run sign            # writes dist/browser_fetch-<version>.xpi
    ```
-3. Open the `.xpi` in Firefox (drag it onto a window, or `firefox dist/*.xpi`)
+3. Open the `.xpi` in Firefox (or download it from the
+   [latest release](https://github.com/aubreybailey/firefox_RC_mcp/releases/latest)) (drag it onto a window, or `firefox dist/*.xpi`)
    and accept the install prompt.
 
 Mozilla rejects a version number it has already signed, so bump `version` in
@@ -113,6 +114,26 @@ To stop: close the Firefox window and `pkill -f server/bridge.mjs`. After
 editing the extension, close the window and rerun the script (it runs with
 `--no-reload`).
 
-A global Claude Code skill (`~/.claude/skills/browser-fetch/SKILL.md`) tells
-Claude when to use these tools over WebFetch and to run this script when the
-stack is down.
+## Claude Code skill
+
+`skill/SKILL.md` tells Claude when to use these tools over WebFetch, when to
+pass `container`, and to run `start-stack.sh` when the stack is down. Install
+it globally by linking it, so it stays in sync with the repo:
+
+```sh
+ln -s "$PWD/skill" ~/.claude/skills/browser-fetch
+```
+
+## Releasing
+
+Bump `version` in `extension/manifest.json`, commit, then push a matching tag:
+
+```sh
+git tag v0.2.2 && git push origin v0.2.2
+```
+
+The `Release` workflow signs the extension on AMO (unlisted, using the
+`WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET` repo secrets) and attaches the `.xpi`
+to a GitHub Release. AMO rejects a version it has already signed. `CI` runs
+syntax checks, `web-ext lint` and `npm test` (a browser-free smoke test) on
+every push.
