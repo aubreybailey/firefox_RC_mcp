@@ -46,6 +46,29 @@ function waitForComplete(tabId, timeoutMs = 60000) {
   });
 }
 
+// Resolve a container name (case-insensitive) or cookieStoreId to a
+// cookieStoreId. Needed for sites a container add-on (e.g. Facebook Container)
+// isolates: a tab opened in the default container is logged out, and the add-on
+// may close it and reopen the URL in its own container.
+async function resolveContainer(container) {
+  if (!container) return undefined;
+  const ids = await api.contextualIdentities.query({});
+  const hit = ids.find((c) => c.cookieStoreId === container || c.name.toLowerCase() === container.toLowerCase());
+  if (!hit) throw new Error(`no container "${container}"; available: ${ids.map((c) => c.name).join(", ")}`);
+  return hit.cookieStoreId;
+}
+
+async function openTab(url, container) {
+  const cookieStoreId = await resolveContainer(container);
+  return api.tabs.create({ url, active: false, ...(cookieStoreId && { cookieStoreId }) });
+}
+
+async function assertTabAlive(tabId) {
+  try { await api.tabs.get(tabId); } catch {
+    throw new Error("tab was closed before it could be read; a container add-on probably moved the site into its own container. Retry with the container option (e.g. container: \"Facebook\").");
+  }
+}
+
 async function readText(tabId) {
   try {
     const [{ result } = {}] = await api.scripting.executeScript({
@@ -74,11 +97,12 @@ async function reload(tabId) {
 // ── dumpDom: navigate and return rendered content ────────────────────────────
 const BOTWALL = /access denied|pardon our interruption|request unsuccessful|are you a human|verify you are|px-captcha|protected by akamai|enable javascript and cookies|reference #\d|incident id|robot or human|press (?:and|&) hold/i;
 
-async function dumpDom({ url, kind = "text", settle = 4000, retries = 3, max = 400000 }) {
-  const tab = await api.tabs.create({ url, active: false });
+async function dumpDom({ url, kind = "text", settle = 4000, retries = 3, max = 400000, container }) {
+  const tab = await openTab(url, container);
   try {
     await waitForComplete(tab.id);
     await sleep(settle);
+    await assertTabAlive(tab.id);
     let content = kind === "html" ? await readHtml(tab.id) : await readText(tab.id);
     for (let i = 0; i < retries && BOTWALL.test(content); i++) {
       await sleep(5000);
@@ -105,12 +129,13 @@ async function fetchUrl({ url, max = 400000 }) {
 }
 
 // ── searchLinks: extract links matching a pattern ────────────────────────────
-async function searchLinks({ url, pattern, settle = 3500, limit = 50 }) {
+async function searchLinks({ url, pattern, settle = 3500, limit = 50, container }) {
   const re = new RegExp(pattern || ".", "i");
-  const tab = await api.tabs.create({ url, active: false });
+  const tab = await openTab(url, container);
   try {
     await waitForComplete(tab.id);
     await sleep(settle);
+    await assertTabAlive(tab.id);
     let links = [];
     for (let i = 0; i < 6; i++) {
       const [{ result } = {}] = await api.scripting.executeScript({
@@ -128,11 +153,12 @@ async function searchLinks({ url, pattern, settle = 3500, limit = 50 }) {
 }
 
 // ── netLog: capture network requests a page makes ────────────────────────────
-async function netLog({ url, settle = 7000, pattern }) {
-  const tab = await api.tabs.create({ url, active: false });
+async function netLog({ url, settle = 7000, pattern, container }) {
+  const tab = await openTab(url, container);
   try {
     await waitForComplete(tab.id);
     await sleep(settle);
+    await assertTabAlive(tab.id);
     const [{ result } = {}] = await api.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => performance.getEntriesByType("resource").map((e) => e.name),

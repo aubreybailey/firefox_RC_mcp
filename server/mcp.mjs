@@ -55,8 +55,9 @@ server.tool(
     settle: z.number().optional().default(4000).describe("Milliseconds to wait after page load before reading (default 4000)"),
     retries: z.number().optional().default(3).describe("Number of reload attempts if a bot wall is detected (default 3)"),
     max: z.number().optional().default(400000).describe("Max characters to return (default 400000)"),
+    container: z.string().optional().describe("Firefox container name to open the tab in (e.g. \"Facebook\"), for sites a container add-on isolates"),
   },
-  async ({ url, kind, settle, retries, max }) => asText(await rpc({ type: "dumpDom", url, kind, settle, retries, max })),
+  async ({ url, kind, settle, retries, max, container }) => asText(await rpc({ type: "dumpDom", url, kind, settle, retries, max, container })),
 );
 
 server.tool(
@@ -80,8 +81,9 @@ server.tool(
     url: z.string().describe("The page URL to scan for links"),
     pattern: z.string().optional().default(".").describe("Regex to filter links (default matches all)"),
     limit: z.number().optional().default(50).describe("Max links to return (default 50)"),
+    container: z.string().optional().describe("Firefox container name to open the tab in (e.g. \"Facebook\"), for sites a container add-on isolates"),
   },
-  async ({ url, pattern, limit }) => asText(await rpc({ type: "searchLinks", url, pattern, limit })),
+  async ({ url, pattern, limit, container }) => asText(await rpc({ type: "searchLinks", url, pattern, limit, container })),
 );
 
 server.tool(
@@ -92,8 +94,9 @@ server.tool(
     url: z.string().describe("The page URL to monitor"),
     pattern: z.string().optional().describe("Regex to filter captured URLs"),
     settle: z.number().optional().default(7000).describe("Milliseconds to wait for requests to complete (default 7000)"),
+    container: z.string().optional().describe("Firefox container name to open the tab in (e.g. \"Facebook\"), for sites a container add-on isolates"),
   },
-  async ({ url, pattern, settle }) => asText(await rpc({ type: "netLog", url, pattern, settle })),
+  async ({ url, pattern, settle, container }) => asText(await rpc({ type: "netLog", url, pattern, settle, container })),
 );
 
 await server.connect(new StdioServerTransport());

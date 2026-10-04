@@ -16,11 +16,14 @@ Three pieces:
 
 ```sh
 npm install
-claude mcp add browser-fetch -s local -- node "$PWD/server/mcp.mjs"   # per project
-npm run bridge                                                         # keep running
+claude mcp add browser-fetch -s user -- node "$PWD/server/mcp.mjs"   # all projects
+scripts/start-stack.sh                                                # bridge + Firefox
 ```
 
-Then load the extension in Firefox: `about:debugging#/runtime/this-firefox` →
+`start-stack.sh` is the quickest path; the rest of this section and the next
+explain what it does and how to run the pieces by hand.
+
+To do it by hand, run `npm run bridge` and load the extension in Firefox: `about:debugging#/runtime/this-firefox` →
 **Load Temporary Add-on…** → `extension/manifest.json`. It reconnects to the
 bridge every 2 s, so the bridge and Firefox can start in either order.
 
@@ -28,6 +31,35 @@ Error `bridge not reachable at http://127.0.0.1:8798`:
 - `fetch failed` → the bridge isn't running.
 - `no extension connected` → the bridge is up but the extension isn't loaded.
   It's unsigned, so Firefox drops it on every restart.
+
+## Installing permanently (signed)
+
+Release Firefox drops unsigned add-ons on restart. Sign the extension as
+**unlisted** (private, auto-approved, not published on AMO) to install it for
+good:
+
+1. Get API credentials at
+   <https://addons.mozilla.org/developers/addon/api/key/> (free AMO account).
+2. Sign it:
+   ```sh
+   export WEB_EXT_API_KEY=user:...  WEB_EXT_API_SECRET=...
+   npm run sign            # writes dist/browser_fetch-<version>.xpi
+   ```
+3. Open the `.xpi` in Firefox (drag it onto a window, or `firefox dist/*.xpi`)
+   and accept the install prompt.
+
+Mozilla rejects a version number it has already signed, so bump `version` in
+`extension/manifest.json` before re-signing after changes.
+
+## Firefox containers
+
+If a container add-on (Facebook Container, Multi-Account Containers) isolates a
+site, a tab opened in the default container is logged out, and the add-on may
+close it and reopen the URL in its own container before the page is read. Pass
+`container` (the container's name, e.g. `"Facebook"`) to `browse`,
+`search_links` or `net_log` to open the tab in that container. An unknown name
+returns an error listing the available containers. `fetch` doesn't take a
+container.
 
 ## Loading the extension without touching your Firefox
 
@@ -59,3 +91,28 @@ Gotchas:
   profile won't work.
 - `--keep-profile-changes` keeps logins and cookies between runs. Close the
   window to stop it.
+
+## One command for the whole stack
+
+`scripts/start-stack.sh` brings everything up and blocks until the extension
+is connected. It's idempotent, so it's safe to run before every session, and an
+agent (e.g. Claude Code) can run it on its own when a tool call returns
+`bridge not reachable`. It:
+
+1. Checks `GET http://127.0.0.1:8798/health`; if the bridge isn't up, starts
+   it in the background.
+2. If `extensionConnected` is false, borrows the desktop session's display
+   variables, then opens a **new Firefox window** in its own instance and
+   profile, with the extension loaded (the `web-ext` command above).
+3. Polls `/health` for up to 60 s until `"extensionConnected": true`.
+
+Logs go to `~/.local/state/browser-fetch/{bridge,firefox}.log`. Overrides:
+`BROWSER_FETCH_PROFILE`, `FIREFOX_BIN`, `BROWSER_FETCH_BRIDGE`.
+
+To stop: close the Firefox window and `pkill -f server/bridge.mjs`. After
+editing the extension, close the window and rerun the script (it runs with
+`--no-reload`).
+
+A global Claude Code skill (`~/.claude/skills/browser-fetch/SKILL.md`) tells
+Claude when to use these tools over WebFetch and to run this script when the
+stack is down.
