@@ -101,7 +101,8 @@ def find_profile() -> str:
 
 def render(url: str, profile: str, wait: float, headless: bool, fmt: str) -> str:
     snap_ff = os.path.exists(SNAP_GECKODRIVER)
-    with tempfile.TemporaryDirectory(dir=SNAP_TMP if snap_ff else None, prefix="pagecat-") as tmp:
+    tmp = tempfile.mkdtemp(dir=SNAP_TMP if snap_ff else None, prefix="pagecat-")
+    try:
         snap = shutil.copytree(profile, os.path.join(tmp, "profile"), ignore=SKIP)
         opts = Options()
         if headless:
@@ -119,6 +120,14 @@ def render(url: str, profile: str, wait: float, headless: bool, fmt: str) -> str
             html = driver.page_source
         finally:
             driver.quit()
+    finally:
+        # The copy holds your cookies, so make sure it goes. Firefox may still
+        # be flushing files for a moment after quit().
+        for _ in range(20):
+            shutil.rmtree(tmp, ignore_errors=True)
+            if not os.path.exists(tmp):
+                break
+            time.sleep(0.25)
 
     if fmt == "html":
         return html

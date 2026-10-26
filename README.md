@@ -131,6 +131,10 @@ text, usually several times smaller than the HTML. It finds the default profile
 on its own (including Snap Firefox) or takes `--profile`. Notes:
 - It copies your profile each run, minus caches, locks and session files. Logins
   held only in session files won't carry over.
+- Firefox under Selenium reports itself as automated (`navigator.webdriver`),
+  so sites with bot detection may serve a reduced page. For example, Home
+  Depot renders but drops your selected store. Use the MCP's `browse`
+  (your real, non-automated Firefox) for those.
 - It doesn't see Firefox containers; a container-only login (e.g. Facebook
   Container) is logged out here. Use the MCP's `container` option for those.
 - Snap Firefox: the copy goes under `~/snap/firefox/common/` and it uses
