@@ -114,6 +114,29 @@ To stop: close the Firefox window and `pkill -f server/bridge.mjs`. After
 editing the extension, close the window and rerun the script (it runs with
 `--no-reload`).
 
+## pagecat: one-shot CLI render
+
+`tools/pagecat.py` renders a URL in headless Firefox from a throwaway copy of
+your profile (cookies, history, storage; real Firefox fingerprint) and prints
+it, with no bridge or extension involved:
+
+```sh
+uv run tools/pagecat.py https://example.com          # screen-reader outline (default)
+uv run tools/pagecat.py URL -f md                    # main article as markdown
+uv run tools/pagecat.py URL --headed --wait 5        # for stubborn bot checks
+```
+
+The outline lists landmarks, headings, links (with targets), form controls and
+text, usually several times smaller than the HTML. It finds the default profile
+on its own (including Snap Firefox) or takes `--profile`. Notes:
+- It copies your profile each run, minus caches, locks and session files. Logins
+  held only in session files won't carry over.
+- It doesn't see Firefox containers; a container-only login (e.g. Facebook
+  Container) is logged out here. Use the MCP's `container` option for those.
+- Snap Firefox: the copy goes under `~/snap/firefox/common/` and it uses
+  `/snap/bin/geckodriver`, since the snap can't see `/tmp` or start under a
+  downloaded driver.
+
 ## Claude Code skill
 
 `skill/SKILL.md` tells Claude when to use these tools over WebFetch, when to
