@@ -1,70 +1,79 @@
 ---
 name: browser-fetch
-description: Fetch web pages through a real Firefox (real cookies/fingerprint) via the browser-fetch MCP tools (mcp__browser-fetch__browse, fetch, search_links, net_log). Use when WebFetch gets a 403, Cloudflare/bot wall, CAPTCHA, or an empty JS-rendered page; when a page needs the user's login cookies; or to discover a site's hidden API endpoints. Also covers starting the stack (bridge + Firefox window) when a tool returns "bridge not reachable".
+description: Read web pages through the user's real Firefox (their cookies, logins, containers and fingerprint) via the browser-fetch MCP tools (mcp__browser-fetch__browse, fetch, search_links, net_log). Use when WebFetch gets a 403, bot wall or challenge page, or an empty JS-rendered page; when a page needs the user's login; or to find the JSON API behind a page. Covers picking the cheapest output (text by default, outline or a CSS selector when needed), Firefox containers, and starting the stack when a tool returns "bridge not reachable" or "no extension connected".
 ---
 
 # browser-fetch
 
-Repo: `~/code/firefox_webfetch_MCP` (see its README.md). The MCP server is
-registered at user scope, so the tools exist in every project. They need two
-background pieces: the **bridge** (`:8798` HTTP, `:8797` WS) and a **Firefox
-window with the extension** connected to it.
+Repo: `~/code/firefox_webfetch_MCP` (see its README.md). The tools work by
+opening **background tabs in the user's own Firefox** (closed again after
+reading), so they see the user's logins. Two pieces must be running: the
+**bridge** (`:8798` HTTP, `:8797` WS) and the **extension**, which is installed
+permanently in the user's main Firefox.
+
+Try plain WebFetch first for ordinary public pages. Switch to these tools when
+it's blocked, the page is built by JavaScript, or it needs the user's login.
 
 ## Pick the tool
 
 | Need | Tool |
 |---|---|
-| Rendered page text/HTML (SPAs, bot walls) | `browse` (`kind: "text"` default, `"html"` for markup) |
-| JSON API / raw resource, with browser cookies, no CORS | `fetch` |
-| Find links on a page by regex | `search_links` |
-| Find the XHR/API endpoints a page calls | `net_log`, then `fetch` the endpoint directly |
+| Read a page | `browse` |
+| Find links to other pages | `search_links` (regex on link URLs) |
+| Find the API behind a page | `net_log`, then `fetch` that endpoint |
+| JSON API or raw file, no rendering | `fetch` |
 
-Prefer plain WebFetch first for ordinary public pages; switch to these when
-it fails or the content is JS-rendered. `browse` drives a visible tab, so
-it's slower (default `settle` 4000 ms). Raise `settle` for slow SPAs, and use
-`max` to cap large pages.
+## Keep `browse` output small
+
+Pick the cheapest output that answers the question:
+
+1. **`kind: "text"` (default):** visible text only, usually a few thousand
+   characters. Enough for reading content.
+2. **`selector`:** add `"main"`, `"article"` or a specific selector to skip
+   navigation, footers and ads. It works with any `kind`. If nothing matches,
+   it returns an error; retry without it.
+3. **`kind: "outline"`:** a screen-reader view: landmarks, headings, links
+   with their targets, buttons and form fields. It's 3–10× larger than text,
+   so use it only when you need structure: where links go, what a form asks,
+   or how a page is laid out. Pair it with `selector` where you can.
+4. **`kind: "html"`:** raw DOM, often hundreds of KB. Only when you need the
+   markup itself; always set `selector` and `max`.
+
+Also: raise `settle` (default 4000 ms) for slow apps, and set `max` when you
+only need the start of a page.
+
+## Logged-in sites and Firefox containers
+
+The user may isolate sites in Firefox containers (e.g. Facebook Container).
+Outside its container, such a site is logged out. If `browse`, `search_links` or `net_log` returns an empty body,
+a login page, or "tab was closed before it could be read", retry with
+`container: "<name>"`, e.g. `"Facebook"`. An unknown name returns an error
+listing the containers. `fetch` has no container option and uses
+default-container cookies only.
 
 ## If a tool returns `bridge not reachable` or `no extension connected`
 
-`bridge not reachable` means the bridge process isn't running; `bridge … is up
-but no extension connected` means Firefox (with the extension) isn't attached.
-Either way, bring the stack up yourself, then retry the call:
+- **`bridge not reachable`:** the bridge isn't running. Run
+  `~/code/firefox_webfetch_MCP/scripts/start-stack.sh` and retry. It prints
+  `stack up` or `stack already up`.
+- **`… is up but no extension connected`:** the user's Firefox is closed.
+  For anything that needs their logins, **ask the user to open Firefox**. The
+  extension reconnects within seconds. `start-stack.sh` would instead open a
+  separate fallback window with no logins or containers, which is only
+  useful for public pages.
 
-```sh
-~/code/firefox_webfetch_MCP/scripts/start-stack.sh
-```
+Check state with `curl -s http://127.0.0.1:8798/health`. If `start-stack.sh`
+fails, read `~/.local/state/browser-fetch/{bridge,firefox}.log`:
+- `bridge.log`: "port already in use" means another bridge is running
+  (`pgrep -af bridge.mjs`).
+- `firefox.log`: a display error means there's no graphical session.
 
-It's idempotent: it starts the bridge if needed, opens a separate Firefox
-instance/window (own profile, extension preloaded via `web-ext`), and waits
-until `/health` reports `"extensionConnected": true`. It prints
-`stack up` / `stack already up` on success.
+Never kill the user's main Firefox.
 
-Check state at any point: `curl -s http://127.0.0.1:8798/health`.
+## Changing the extension
 
-On failure, read the logs in `~/.local/state/browser-fetch/`:
-- `bridge.log`: port already in use usually means a bridge is running
-  elsewhere; check `pgrep -af bridge.mjs`.
-- `firefox.log`: `ECONNREFUSED` means Firefox handed off to an existing
-  instance (the script already passes `--new-instance -no-remote`); a display
-  error means no `DISPLAY`/`WAYLAND_DISPLAY`, i.e. no graphical session.
-
-The signed extension is installed permanently in the user's main Firefox, so
-usually only the bridge needs starting. `start-stack.sh` opens a separate
-window (profile `~/snap/firefox/common/browser-fetch-profile`, no user logins)
-only when no extension is connected. Don't kill the user's main Firefox.
-
-## Firefox containers
-
-If `browse` returns an empty body, or the error "tab was closed before it could
-be read", for a site the user is logged into (Facebook, Google, Amazon…), the site
-probably lives in a Firefox container. Retry with `container: "<name>"`, e.g.
-`"Facebook"`. An unknown name returns an error listing the available
-containers. `fetch` has no container option, so it sees the default container's
-cookies.
-
-## Notes
-
-- Logins persist in that profile. If a site needs auth, ask the user to log in
-  inside the browser-fetch window once.
-- `fetch` runs from the extension context. Don't add a `connect-src` to the
-  extension CSP: it breaks `fetch` to arbitrary hosts.
+After editing `extension/`, bump `version` in `extension/manifest.json`, then
+push a matching tag (`git tag vX.Y.Z && git push origin vX.Y.Z`). The Release
+workflow signs it, and the user installs the `.xpi` from the GitHub Release.
+After changing `server/mcp.mjs`, the user must reconnect `browser-fetch` with
+`/mcp`. Don't add a `connect-src` to the extension's CSP: it breaks `fetch`.

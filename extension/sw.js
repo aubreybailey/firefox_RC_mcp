@@ -69,24 +69,75 @@ async function assertTabAlive(tabId) {
   }
 }
 
-async function readText(tabId) {
-  try {
-    const [{ result } = {}] = await api.scripting.executeScript({
-      target: { tabId },
-      func: () => (document.body ? document.body.innerText : ""),
-    });
-    return result || "";
-  } catch { return ""; }
+// Runs in the page. Returns null when `selector` matches nothing.
+function pageRead(kind, selector) {
+  const root = selector ? document.querySelector(selector) : document.body;
+  if (!root) return null;
+  if (kind === "html") return selector ? root.outerHTML : document.documentElement.outerHTML;
+  if (kind !== "outline") return root.innerText;
+
+  // Screen-reader view: landmarks, headings, links with targets, controls, text.
+  const LANDMARK = { NAV: "nav", MAIN: "main", HEADER: "banner", FOOTER: "contentinfo",
+                     ASIDE: "complementary", FORM: "form", DIALOG: "dialog" };
+  const ROLES = new Set(Object.values(LANDMARK).concat(["navigation", "search", "region"]));
+  const BLOCK = new Set(["P", "LI", "TD", "TH", "DD", "DT", "BLOCKQUOTE", "PRE", "FIGCAPTION", "CAPTION"]);
+  const IGNORE = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "IFRAME", "HEAD"]);
+  const NESTED = "a,button,input,select,textarea,h1,h2,h3,h4,h5,h6,[role]";
+  const clip = (s, n = 160) => {
+    s = (s || "").replace(/\s+/g, " ").trim();
+    return s.length > n ? s.slice(0, n) + "…" : s;
+  };
+  const label = (el) => clip(el.getAttribute("aria-label") || el.labels?.[0]?.innerText || el.alt ||
+    el.title || el.placeholder || el.innerText);
+  // checkVisibility() is false for display:contents boxes (e.g. MDN's <main>),
+  // though their children render, so those count as visible.
+  const hidden = (el) => IGNORE.has(el.tagName) || el.getAttribute("aria-hidden") === "true" ||
+    (el.checkVisibility && !el.checkVisibility() && getComputedStyle(el).display !== "contents");
+  // What actually renders: a shadow root's tree (slots pull light DOM in) or the children.
+  const kids = (el) => el.tagName === "SLOT" ? el.assignedNodes({ flatten: true }) :
+    (el.shadowRoot || el).childNodes;
+
+  const out = [];
+  function walk(el, d) {
+    if (hidden(el)) return;
+    const pad = "  ".repeat(d), t = el.tagName, role = el.getAttribute("role");
+    const emit = (s) => out.push(pad + s);
+    const h = /^H([1-6])$/.exec(t);
+    if (h || role === "heading")
+      return emit("#".repeat(h ? +h[1] : +(el.getAttribute("aria-level") || 2)) + " " + label(el));
+    if ((t === "A" && el.hasAttribute("href")) || role === "link")
+      return emit(`link "${label(el)}" ${el.getAttribute("href") || ""}`);
+    if (t === "BUTTON" || role === "button") return emit(`button "${label(el)}"`);
+    if (t === "INPUT" || t === "SELECT" || t === "TEXTAREA")
+      return el.type !== "hidden" && emit(`${t === "INPUT" ? el.type : t.toLowerCase()} "${label(el)}"`);
+    if (t === "IMG") return el.alt && emit(`img "${clip(el.alt)}"`);
+    const lm = ROLES.has(role) ? role : LANDMARK[t];
+    if (lm) { emit(`[${lm}]`); d++; }
+    else if (BLOCK.has(t) && !el.querySelector(NESTED)) {
+      const s = clip(el.innerText, 2000);
+      return s && emit(s);
+    }
+    for (const c of kids(el)) {
+      if (c.nodeType === Node.ELEMENT_NODE) walk(c, d);
+      else if (c.nodeType === Node.TEXT_NODE) {
+        const s = clip(c.nodeValue, 2000);
+        if (s) out.push("  ".repeat(d) + s);
+      }
+    }
+  }
+  walk(root, 0);
+  return out.filter((l, i) => l !== out[i - 1]).join("\n");
 }
 
-async function readHtml(tabId) {
+async function readPage(tabId, kind, selector) {
+  let result;
   try {
-    const [{ result } = {}] = await api.scripting.executeScript({
-      target: { tabId },
-      func: () => document.documentElement.outerHTML,
+    [{ result } = {}] = await api.scripting.executeScript({
+      target: { tabId }, func: pageRead, args: [kind, selector || null],
     });
-    return result || "";
   } catch { return ""; }
+  if (result === null) throw new Error(`selector ${JSON.stringify(selector)} matched nothing on the page`);
+  return result || "";
 }
 
 async function reload(tabId) {
@@ -97,19 +148,21 @@ async function reload(tabId) {
 // ── dumpDom: navigate and return rendered content ────────────────────────────
 const BOTWALL = /access denied|pardon our interruption|request unsuccessful|are you a human|verify you are|px-captcha|protected by akamai|enable javascript and cookies|reference #\d|incident id|robot or human|press (?:and|&) hold/i;
 
-async function dumpDom({ url, kind = "text", settle = 4000, retries = 3, max = 400000, container }) {
+async function dumpDom({ url, kind = "text", selector, settle = 4000, retries = 3, max = 400000, container }) {
   const tab = await openTab(url, container);
   try {
     await waitForComplete(tab.id);
     await sleep(settle);
     await assertTabAlive(tab.id);
-    let content = kind === "html" ? await readHtml(tab.id) : await readText(tab.id);
-    for (let i = 0; i < retries && BOTWALL.test(content); i++) {
+    // Check the whole page's text for a bot wall before reading the requested
+    // part: a challenge page won't contain `selector`.
+    const walled = async () => BOTWALL.test(await readPage(tab.id, "text"));
+    for (let i = 0; i < retries && await walled(); i++) {
       await sleep(5000);
       await reload(tab.id);
       await sleep(3000);
-      content = kind === "html" ? await readHtml(tab.id) : await readText(tab.id);
     }
+    const content = await readPage(tab.id, kind, selector);
     return { len: content.length, body: content.slice(0, max) };
   } finally {
     try { await api.tabs.remove(tab.id); } catch {}

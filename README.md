@@ -52,6 +52,20 @@ good:
 Mozilla rejects a version number it has already signed, so bump `version` in
 `extension/manifest.json` before re-signing after changes.
 
+## Reading pages cheaply
+
+`browse` returns visible text by default, the smallest output. Options:
+
+| Option | Returns | MDN Fetch API page |
+|---|---|---|
+| `kind: "text"` (default) | visible text | 3.4k chars |
+| `kind: "outline"` | screen-reader view: landmarks, headings, links with targets, buttons, form fields | 12k |
+| `kind: "html"` | raw DOM | 69k |
+| `selector: "main"` | only that element, with any `kind` | 2.9k as text |
+
+Use `outline` when the page's structure matters (where links go, what a form
+asks), and `selector` to drop navigation, footers and ads.
+
 ## Firefox containers
 
 If a container add-on (Facebook Container, Multi-Account Containers) isolates a

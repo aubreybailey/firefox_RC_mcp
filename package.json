@@ -1,6 +1,6 @@
 {
   "name": "firefox-webfetch-mcp",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "MCP server that fetches URLs through a real browser via a Firefox/Chrome extension \u2014 beats CAPTCHAs and bot walls.",
   "type": "module",
   "scripts": {

@@ -50,25 +50,36 @@ const server = new McpServer({ name: "browser-fetch", version: "0.1.0" });
 
 server.tool(
   "browse",
-  "Navigate the user's real browser to a URL and return the fully-rendered page content. " +
-  "Beats CAPTCHAs, bot walls, and JS-rendered SPAs because it runs in the actual browser " +
-  "with real cookies and fingerprint. Use instead of WebFetch when a site blocks automated access.",
+  "Open a URL in a background tab of the user's real Firefox (their cookies, logins and " +
+  "fingerprint), wait for it to render, and return its content. Use when WebFetch is blocked " +
+  "(403, bot wall, challenge page), the page is built by JavaScript, or it needs the user's " +
+  "login. It avoids most bot checks by being a real browser but cannot solve a CAPTCHA. " +
+  "Default kind \"text\" is the cheapest; add selector to read only part of the page.",
   {
-    url: z.string().describe("The URL to navigate to"),
-    kind: z.enum(["text", "html"]).default("text").describe("Return visible text (default) or raw HTML"),
-    settle: z.number().optional().default(4000).describe("Milliseconds to wait after page load before reading (default 4000)"),
-    retries: z.number().optional().default(3).describe("Number of reload attempts if a bot wall is detected (default 3)"),
+    url: z.string().describe("The URL to open"),
+    kind: z.enum(["text", "outline", "html"]).default("text").describe(
+      "text (default, cheapest): visible text. " +
+      "outline: screen-reader view with landmarks, headings, links with targets, buttons and form " +
+      "fields; several times larger than text, use it when you need the page's structure or " +
+      "where its links go. html: raw DOM, by far the largest; only when you need markup."),
+    selector: z.string().optional().describe(
+      "CSS selector (e.g. \"main\", \"article\", \"#results\") to read only that element; " +
+      "cuts navigation, footers and ads. Errors if nothing matches."),
+    settle: z.number().optional().default(4000).describe("Milliseconds to wait after page load before reading (default 4000); raise for slow apps"),
+    retries: z.number().optional().default(3).describe("Reloads to try if a bot-wall page is detected (default 3)"),
     max: z.number().optional().default(400000).describe("Max characters to return (default 400000)"),
-    container: z.string().optional().describe("Firefox container name to open the tab in (e.g. \"Facebook\"), for sites a container add-on isolates"),
+    container: z.string().optional().describe("Firefox container to open the tab in (e.g. \"Facebook\"), for sites a container add-on isolates; an empty result for a logged-in site usually means this is needed"),
   },
-  async ({ url, kind, settle, retries, max, container }) => asText(await rpc({ type: "dumpDom", url, kind, settle, retries, max, container })),
+  async ({ url, kind, selector, settle, retries, max, container }) =>
+    asText(await rpc({ type: "dumpDom", url, kind, selector, settle, retries, max, container })),
 );
 
 server.tool(
   "fetch",
-  "Fetch a URL directly from the browser extension context. No CORS restrictions, includes " +
-  "the browser's cookies. Good for JSON APIs, data endpoints, and resources that need " +
-  "authentication cookies but not full page rendering.",
+  "HTTP GET a URL from inside the Firefox extension, with no CORS restrictions, and return " +
+  "the raw response body. No page is rendered, so it's fast. Use it for JSON APIs and data " +
+  "endpoints (e.g. ones found with net_log). It can only use default-container cookies, so " +
+  "prefer browse for logged-in pages.",
   {
     url: z.string().describe("The URL to fetch"),
     max: z.number().optional().default(400000).describe("Max characters to return (default 400000)"),
@@ -78,9 +89,9 @@ server.tool(
 
 server.tool(
   "search_links",
-  "Navigate to a URL and extract all links (<a href>) matching a regex pattern. " +
-  "Useful for finding specific pages on a site (e.g. product links from a search, " +
-  "document links from an index page).",
+  "Open a URL in the user's real Firefox and return the absolute URLs of links matching a " +
+  "regex. Cheaper than browse with kind \"outline\" when you only need to find pages " +
+  "(e.g. product links from a search, documents from an index page).",
   {
     url: z.string().describe("The page URL to scan for links"),
     pattern: z.string().optional().default(".").describe("Regex to filter links (default matches all)"),
@@ -92,8 +103,9 @@ server.tool(
 
 server.tool(
   "net_log",
-  "Navigate to a URL and capture all network requests the page makes. Useful for " +
-  "discovering API endpoints, XHR calls, and data sources a page uses under the hood.",
+  "Open a URL in the user's real Firefox and list the URLs of the network requests the page " +
+  "made (XHR, fetch, scripts, images). Use it to find the JSON API behind a page, then call " +
+  "that API with fetch instead of scraping the rendered page.",
   {
     url: z.string().describe("The page URL to monitor"),
     pattern: z.string().optional().describe("Regex to filter captured URLs"),
