@@ -25,7 +25,10 @@ try {
   const want = ["browse", "fetch", "net_log", "search_links"];
   if (JSON.stringify(names) !== JSON.stringify(want)) fail(`tools ${names}`);
   const browse = (await client.listTools()).tools.find((t) => t.name === "browse");
-  if (!browse.inputSchema.properties.container) fail("browse has no container option");
+  const props = browse.inputSchema.properties;
+  for (const p of ["container", "selector"]) if (!props[p]) fail(`browse has no ${p} option`);
+  if (JSON.stringify(props.kind.enum) !== JSON.stringify(["text", "outline", "html"])) fail(`kind ${props.kind.enum}`);
+  if (props.kind.default !== "text") fail(`kind default ${props.kind.default}`);
 
   const res = await client.callTool({ name: "browse", arguments: { url: "https://example.com" } });
   if (!/no extension connected/.test(res.content[0].text)) fail(`browse: ${res.content[0].text}`);
